@@ -96,7 +96,7 @@ pub fn get_timestamps_from_last_commit(input: &String) -> (StringMatch, StringMa
 pub fn calculate_threads(
     base_thread_info: ThreadInfo,
     done: Arc<RwLock<bool>>,
-    tx: Sender<ChannelMessage>,
+    tx: Sender<Option<ChannelMessage>>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let mut handles = vec![];
 
@@ -119,7 +119,7 @@ pub fn calculate_threads(
 pub fn calculate_sync(
     thread_info: ThreadInfo,
     done: Arc<RwLock<bool>>,
-    tx: Sender<ChannelMessage>,
+    tx: Sender<Option<ChannelMessage>>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     calculate(thread_info, done, tx);
 
@@ -129,7 +129,7 @@ pub fn calculate_sync(
 fn calculate(
     mut thread_info: ThreadInfo,
     done: Arc<RwLock<bool>>,
-    tx: Sender<ChannelMessage>,
+    tx: Sender<Option<ChannelMessage>>,
 ) {
     let mut new_author_timestamp = thread_info.author_timestamp.value.parse::<u32>().unwrap();
     new_author_timestamp -= thread_info.thread_offset;
@@ -141,9 +141,16 @@ fn calculate(
             return;
         }
         
-        new_author_timestamp -= thread_info.total_threads;
-        let new_author_timestamp_str = new_author_timestamp.to_string();
+        new_author_timestamp = match new_author_timestamp.checked_sub(thread_info.total_threads) {
+            Some(value) => value,
+            None => {
+                println!("I have run out of digits :(");
+                tx.send(None).unwrap();
+                return;
+            },
+        };
 
+        let new_author_timestamp_str = new_author_timestamp.to_string();
         if new_author_timestamp_str.len() < author_timestamp_len {
             println!("ono! only {} digits left!!!!!!1!!11", new_author_timestamp_str.len());
             thread_info.author_timestamp.end -= author_timestamp_len - new_author_timestamp_str.len();
@@ -159,10 +166,10 @@ fn calculate(
         let hash = &thread_info.hasher.finalize_reset();
 
         if thread_info.prefix.is_start_of(&hash.to_vec()) {
-            tx.send(ChannelMessage {
+            tx.send(Some(ChannelMessage {
                 new_author_timestamp,
                 hash: hex::encode(hash),
-            })
+            }))
             .unwrap();
             return;
         }
@@ -191,7 +198,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
 
         calculate(thread_info, done.clone(), tx.clone());
-        let message = rx.recv().unwrap().hash;
+        let message = rx.recv().unwrap().unwrap().hash;
         assert_eq!(message, "044fb45f2966662eb1d5b2eddd41ff023bdf4189");
     }
 }

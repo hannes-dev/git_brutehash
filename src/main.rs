@@ -52,6 +52,14 @@ fn main() {
 
     let message = rx.recv().unwrap();
     *done.write().unwrap() = true;
+    let message = match message {
+        Some(message) => message,
+        None => {
+            println!("Failed to find hash");
+            cleanup(handles);
+            return;
+        }
+    };
 
     println!("----------------------------------------------------");
     println!("Found hash: {}", message.hash);
@@ -74,6 +82,10 @@ fn main() {
         println!("Dry-run; no changes were made")
     }
 
+    cleanup(handles);
+}
+
+fn cleanup(handles: Vec<std::thread::JoinHandle<()>>) {
     // cleanup the children
     for handle in handles {
         handle.join().unwrap();
