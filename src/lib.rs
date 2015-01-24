@@ -37,7 +37,7 @@ impl Prefix {
         Self { prefix, half_byte }
     }
 
-    pub fn is_start_of(&self, array: &Vec<u8>) -> bool {
+    pub fn is_start_of(&self, array: &[u8]) -> bool {
         let n = if self.half_byte {
             self.prefix.len() - 1
         } else {
