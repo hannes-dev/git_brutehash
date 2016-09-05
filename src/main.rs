@@ -29,8 +29,9 @@ fn main() {
         .expect("Failed to execute git command");
 
     let output = String::from_utf8(cmd_output.stdout).expect("Failed to convert output to string");
+    let hashable = format!("commit {}\0{}", output.len(), output);
 
-    let (author_timestamp, committer_timestamp) = get_timestamps_from_last_commit(&output);
+    let (author_timestamp, committer_timestamp) = get_timestamps_from_last_commit(&hashable);
 
     let base_thread_info = ThreadInfo {
         hasher: Sha1::new(),
@@ -51,6 +52,7 @@ fn main() {
     let message = rx.recv().unwrap();
     *done.write().unwrap() = true;
 
+    println!("----------------------------------------------------");
     println!("Found hash: {}", message.hash);
 
     if !args.dry_run {
@@ -63,7 +65,7 @@ fn main() {
                 "--date",
                 &(message.new_author_timestamp.to_string() + "+0200"),
             ])
-            .env("GIT_COMMITTER_DATE", committer_timestamp)
+            .env("GIT_COMMITTER_DATE", committer_timestamp.value)
             .output()
             .expect("Failed to execute git command");
         println!("Amended commit to hash {}", message.hash);
@@ -81,6 +83,6 @@ fn hex_check(s: &str) -> Result<String, String> {
     if s.chars().all(|c| c.is_ascii_hexdigit()) {
         Ok(s.to_string())
     } else {
-        Err("Prefix must be a hex string".into())
+        Err(format!("Prefix {s} must be a hex string"))
     }
 }
