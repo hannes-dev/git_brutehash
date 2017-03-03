@@ -36,7 +36,8 @@ fn main() {
     let base_thread_info = ThreadInfo {
         hasher: Sha1::new(),
         hashable: format!("commit {}\0{}", output.len(), output),
-        thread_num: args.threads,
+        total_threads: args.threads,
+        thread_offset: 0,
         author_timestamp,
         prefix: prefix,
     };
@@ -49,14 +50,7 @@ fn main() {
         calculate_threads(base_thread_info, done.clone(), tx)
     };
 
-    let message = match rx.recv() {
-        Ok(message) => message,
-        Err(err) => {
-            eprintln!("recv err: {}", err);
-            return;
-        }
-    
-    };
+    let message = rx.recv().unwrap();
     *done.write().unwrap() = true;
 
     println!("----------------------------------------------------");

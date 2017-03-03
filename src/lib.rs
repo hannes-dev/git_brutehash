@@ -6,7 +6,8 @@ use std::sync::{mpsc::Sender, Arc, RwLock};
 pub struct ThreadInfo {
     pub hasher: Sha1,
     pub hashable: String,
-    pub thread_num: u32,
+    pub total_threads: u32,
+    pub thread_offset: u32,
     pub author_timestamp: StringMatch,
     pub prefix: Prefix,
 }
@@ -99,16 +100,15 @@ pub fn calculate_threads(
 ) -> Vec<std::thread::JoinHandle<()>> {
     let mut handles = vec![];
 
-    for offset in 0..base_thread_info.thread_num {
-        let new_thread = base_thread_info.clone();
-        let new_author_timestamp =
-            new_thread.author_timestamp.value.parse::<u32>().unwrap() - offset;
+    for offset in 0..base_thread_info.total_threads {
+        let mut new_thread = base_thread_info.clone();
+        new_thread.thread_offset = offset;
 
         let done = done.clone();
         let tx = tx.clone();
 
         let handle =
-            std::thread::spawn(move || calculate(new_thread, new_author_timestamp, done, tx));
+            std::thread::spawn(move || calculate(new_thread, done, tx));
 
         handles.push(handle);
     }
@@ -121,36 +121,38 @@ pub fn calculate_sync(
     done: Arc<RwLock<bool>>,
     tx: Sender<ChannelMessage>,
 ) -> Vec<std::thread::JoinHandle<()>> {
-    let new_author_timestamp = thread_info.author_timestamp.value.parse::<u32>().unwrap();
-    calculate(thread_info, new_author_timestamp, done, tx);
+    calculate(thread_info, done, tx);
 
     Vec::new()
 }
 
 fn calculate(
     mut thread_info: ThreadInfo,
-    mut new_author_timestamp: u32,
     done: Arc<RwLock<bool>>,
     tx: Sender<ChannelMessage>,
 ) {
-    let mut author_timestamp_len= new_author_timestamp.to_string().len();
+    let mut new_author_timestamp = thread_info.author_timestamp.value.parse::<u32>().unwrap();
+    new_author_timestamp -= thread_info.thread_offset;
+
+    let mut author_timestamp_len= thread_info.author_timestamp.value.to_string().len();
+
     loop {
         if *done.read().unwrap() {
             return;
         }
         
-        new_author_timestamp -= thread_info.thread_num;
+        new_author_timestamp -= thread_info.total_threads;
         let new_author_timestamp_str = new_author_timestamp.to_string();
-        
+
         if new_author_timestamp_str.len() < author_timestamp_len {
             println!("ono! only {} digits left!!!!!!1!!11", new_author_timestamp_str.len());
-            author_timestamp_len = new_author_timestamp.to_string().len();
             thread_info.author_timestamp.end -= author_timestamp_len - new_author_timestamp_str.len();
+            author_timestamp_len = new_author_timestamp.to_string().len();
         }
-        
+         
         thread_info.hashable.replace_range(
             &thread_info.author_timestamp.start..&thread_info.author_timestamp.end,
-            &new_author_timestamp.to_string(),
+            &new_author_timestamp_str,
         );
 
         thread_info.hasher.update(&thread_info.hashable);
@@ -164,5 +166,32 @@ fn calculate(
             .unwrap();
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use super::*;
+
+    #[test]
+    fn calculate_rollover() {
+        let hash_string = "author Test <test@example.com> 1000000000 +0200\ncommitter Test <test@example.com> 1000000000 +0200".to_string();
+        let thread_info = ThreadInfo {
+            author_timestamp: get_timestamps_from_last_commit(&hash_string).0,
+            hasher: Sha1::new(),
+            hashable: hash_string,
+            total_threads: 1,
+            thread_offset: 0,
+            prefix: Prefix::new("0".to_string()),
+        };
+
+        let done = Arc::new(RwLock::new(false));
+        let (tx, rx) = mpsc::channel();
+
+        calculate(thread_info, done.clone(), tx.clone());
+        let message = rx.recv().unwrap().hash;
+        assert_eq!(message, "044fb45f2966662eb1d5b2eddd41ff023bdf4189");
     }
 }
