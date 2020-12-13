@@ -8,12 +8,47 @@ pub struct ThreadInfo {
     pub hashable: String,
     pub thread_num: u32,
     pub author_timestamp: String,
-    pub prefix: String,
+    pub prefix: Prefix,
 }
 
 pub struct ChannelMessage {
     pub new_author_timestamp: u32,
     pub hash: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Prefix {
+    pub prefix: Vec<u8>,
+    pub half_byte: bool,
+}
+
+impl Prefix {
+    pub fn new(prefix: String) -> Self {
+        let half_byte = prefix.len() % 2 != 0;
+        let prefix = hex::decode(if half_byte { prefix + "0" } else { prefix }).unwrap();
+
+        Self { prefix, half_byte }
+    }
+
+    pub fn is_start_of(&self, array: &Vec<u8>) -> bool {
+        let n = if self.half_byte {
+            self.prefix.len() - 1
+        } else {
+            self.prefix.len()
+        };
+
+        if self.prefix[..n] != array[..n] {
+            return false;
+        }
+
+        if self.half_byte {
+            let byte = self.prefix[n];
+            let masked_array = array[n] & 0xF0;
+            return byte == masked_array;
+        }
+
+        true
+    }
 }
 
 pub fn get_timestamps_from_last_commit(output: &String) -> (String, String) {
@@ -96,12 +131,12 @@ fn calculate(
         );
 
         thread_info.hasher.update(&new_hashable);
-        let hash = hex::encode(&thread_info.hasher.finalize_reset());
+        let hash = &thread_info.hasher.finalize_reset();
 
-        if hash.starts_with(&thread_info.prefix) {
+        if thread_info.prefix.is_start_of(&hash.to_vec()) {
             tx.send(ChannelMessage {
                 new_author_timestamp,
-                hash,
+                hash: hex::encode(hash),
             })
             .unwrap();
             return;

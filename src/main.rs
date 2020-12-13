@@ -1,5 +1,5 @@
 use clap::Parser;
-use lib::{calculate_sync, calculate_threads, get_timestamps_from_last_commit, ThreadInfo};
+use lib::{calculate_sync, calculate_threads, get_timestamps_from_last_commit, Prefix, ThreadInfo};
 use sha1::{Digest, Sha1};
 use std::{
     process::Command,
@@ -21,6 +21,7 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+    let prefix = Prefix::new(args.prefix);
 
     let cmd_output = Command::new("git")
         .args(["cat-file", "commit", "HEAD"])
@@ -36,10 +37,8 @@ fn main() {
         hashable: format!("commit {}\0{}", output.len(), output),
         thread_num: args.threads,
         author_timestamp,
-        prefix: args.prefix,
+        prefix: prefix,
     };
-
-    dbg!(&base_thread_info);
 
     let done = Arc::new(RwLock::new(false));
     let (tx, rx) = mpsc::channel();
