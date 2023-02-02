@@ -9,6 +9,10 @@ edition = "2021"
 name = "lib"
 path = "src/lib.rs"
 
+[profile.profile]
+inherits = "release"
+debug = true
+
 [dev-dependencies]
 criterion = "0.3"
 

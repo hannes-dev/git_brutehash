@@ -69,9 +69,11 @@ pub fn calculate_sync(
     thread_info: ThreadInfo,
     done: Arc<RwLock<bool>>,
     tx: Sender<ChannelMessage>,
-) {
+) -> Vec<std::thread::JoinHandle<()>> {
     let new_author_timestamp = thread_info.author_timestamp.parse::<u32>().unwrap();
     calculate(thread_info, new_author_timestamp, done, tx);
+
+    Vec::new()
 }
 
 fn calculate(

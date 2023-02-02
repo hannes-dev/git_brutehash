@@ -1,5 +1,5 @@
 use clap::Parser;
-use lib::{calculate_threads, get_timestamps_from_last_commit, ThreadInfo};
+use lib::{calculate_sync, calculate_threads, get_timestamps_from_last_commit, ThreadInfo};
 use sha1::{Digest, Sha1};
 use std::{
     process::Command,
@@ -43,7 +43,11 @@ fn main() {
 
     let done = Arc::new(RwLock::new(false));
     let (tx, rx) = mpsc::channel();
-    let handles = calculate_threads(base_thread_info, done.clone(), tx);
+    let handles = if args.threads == 1 {
+        calculate_sync(base_thread_info, done.clone(), tx)
+    } else {
+        calculate_threads(base_thread_info, done.clone(), tx)
+    };
 
     let message = rx.recv().unwrap();
     *done.write().unwrap() = true;
