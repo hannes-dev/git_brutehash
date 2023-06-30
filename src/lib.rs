@@ -133,13 +133,21 @@ fn calculate(
     done: Arc<RwLock<bool>>,
     tx: Sender<ChannelMessage>,
 ) {
+    let mut author_timestamp_len= new_author_timestamp.to_string().len();
     loop {
         if *done.read().unwrap() {
             return;
         }
-
+        
         new_author_timestamp -= thread_info.thread_num;
-
+        let new_author_timestamp_str = new_author_timestamp.to_string();
+        
+        if new_author_timestamp_str.len() < author_timestamp_len {
+            println!("ono! only {} digits left!!!!!!1!!11", new_author_timestamp_str.len());
+            author_timestamp_len = new_author_timestamp.to_string().len();
+            thread_info.author_timestamp.end -= author_timestamp_len - new_author_timestamp_str.len();
+        }
+        
         thread_info.hashable.replace_range(
             &thread_info.author_timestamp.start..&thread_info.author_timestamp.end,
             &new_author_timestamp.to_string(),

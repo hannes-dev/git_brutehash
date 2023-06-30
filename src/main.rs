@@ -49,7 +49,14 @@ fn main() {
         calculate_threads(base_thread_info, done.clone(), tx)
     };
 
-    let message = rx.recv().unwrap();
+    let message = match rx.recv() {
+        Ok(message) => message,
+        Err(err) => {
+            eprintln!("recv err: {}", err);
+            return;
+        }
+    
+    };
     *done.write().unwrap() = true;
 
     println!("----------------------------------------------------");
