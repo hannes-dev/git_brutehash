@@ -1,7 +1,8 @@
 use regex::Regex;
+use clap::Parser;
 use sha1::{Digest, Sha1};
 use std::{
-    env, ops::Not, process::Command, sync::{
+    process::Command, sync::{
         mpsc::{self, Sender},
         Arc, RwLock,
     }
@@ -16,17 +17,26 @@ struct ThreadInfo {
     prefix: String,
 }
 
-fn main() {
-    let prefix = env::args().nth(1).expect("Please provide a prefix");
-    if prefix.chars().all(|c| c.is_ascii_hexdigit()).not() {
-        panic!("Prefix must be a hex string");
-    }
+struct ChannelMessage {
+    new_author_timestamp: u32,
+    hash: String,
+}
 
-    let thread_num: u32 = env::args()
-        .nth(2)
-        .unwrap_or("8".into())
-        .parse()
-        .expect("Please provide a number of threads (int)");
+#[derive(Parser, Debug)]
+struct Args {
+    /// hash prefix to search for
+    #[arg(value_parser = hex_check)]
+    prefix: String,
+    /// search for hash but do not modify the commit
+    #[arg(short, long, default_value = "false")]
+    dry_run: bool,
+    /// number of threads to use
+    #[arg(short, long, default_value = "8", value_parser = clap::value_parser!(u32).range(1..=128))]
+    threads: u32,
+}
+
+fn main() {
+    let args = Args::parse();
 
     let cmd_output = Command::new("git")
         .args(["cat-file", "commit", "HEAD"])
@@ -40,30 +50,35 @@ fn main() {
     let base_thread_info = ThreadInfo {
         hasher: Sha1::new(),
         hashable: format!("commit {}\0{}", output.len(), output),
-        thread_num,
+        thread_num: args.threads,
         author_timestamp,
-        prefix,
+        prefix: args.prefix,
     };
 
     let done = Arc::new(RwLock::new(false));
     let (tx, rx) = mpsc::channel();
     let handles = create_threads(base_thread_info, done.clone(), tx);
 
-    let new_author_timestamp = rx.recv().unwrap();
+    let message = rx.recv().unwrap();
     *done.write().unwrap() = true;
 
-    Command::new("git")
-        .args(["commit", "--amend", "--allow-empty", "--no-edit", "--date", &(new_author_timestamp.to_string() + "+0200")])
-        .env("GIT_COMMITTER_DATE", committer_timestamp)
-        .output()
-        .expect("Failed to execute git command");
+    println!("Found hash: {}", message.hash);
+
+    if !args.dry_run {
+        Command::new("git")
+            .args(["commit", "--amend", "--allow-empty", "--no-edit", "--date", &(message.new_author_timestamp.to_string() + "+0200")])
+            .env("GIT_COMMITTER_DATE", committer_timestamp)
+            .output()
+            .expect("Failed to execute git command");
+        println!("Amended commit to hash {}", message.hash);
+    } else {
+        println!("Dry-run; no changes were made")
+    }
 
     // cleanup the children
     for handle in handles {
         handle.join().unwrap();
     }
-
-    println!("Done!");
 }
 
 fn get_timestamps_from_last_commit(output: &String) -> (String, String) {
@@ -95,7 +110,7 @@ fn get_timestamps_from_last_commit(output: &String) -> (String, String) {
 fn create_threads(
     base_thread_info: ThreadInfo,
     done: Arc<RwLock<bool>>,
-    tx: Sender<u32>,
+    tx: Sender<ChannelMessage>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let mut handles = vec![];
 
@@ -126,8 +141,10 @@ fn create_threads(
             let hash = hex::encode(&new_thread.hasher.finalize_reset());
 
             if hash.starts_with(&new_thread.prefix) {
-                dbg!(new_hashable);
-                tx.send(new_author_timestamp).unwrap();
+                tx.send(ChannelMessage {
+                    new_author_timestamp,
+                    hash,
+                }).unwrap();
                 return;
             }
         });
@@ -136,4 +153,12 @@ fn create_threads(
     }
 
     handles
+}
+
+fn hex_check(s: &str) -> Result<String, String> {
+    if s.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(s.to_string())
+    } else {
+        Err("Prefix must be a hex string".into())
+    }
 }
